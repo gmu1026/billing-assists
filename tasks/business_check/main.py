@@ -11,7 +11,7 @@ from shared.notifier import send_message
 
 # --- 설정 ---
 # 시트 ID는 환경변수로 관리하거나 여기에 직접 적어도 무방(공개 repo가 아니라면)
-SHEET_URL = 'https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID_HERE' 
+SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 API_KEY = os.environ.get("NTS_API_KEY")
 NTS_API_URL = f"https://api.odcloud.kr/api/nts-businessman/v1/status?serviceKey={API_KEY}"
 
@@ -58,9 +58,14 @@ def fetch_status_batch(b_no_list):
 def run():
     print("🔄 사업자 상태 조회 시작...")
     
+    # URL 조합
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
+    
+    print("🔄 사업자 상태 조회 시작...")
+
     # 1. 시트 데이터 가져오기
     try:
-        sheet = get_connection(SHEET_URL)
+        sheet = get_connection(sheet_url)
         # 1열(A열) 사업자 번호 가져오기 (헤더 제외 2행부터)
         business_numbers = sheet.col_values(1)[1:]
     except Exception as e:

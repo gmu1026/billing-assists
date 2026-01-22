@@ -33,4 +33,5 @@ jobs:
           NTS_API_KEY: ${{ secrets.NTS_API_KEY }}
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }} # JSON 내용 전체
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
         run: uv run python tasks/business_check/main.py
