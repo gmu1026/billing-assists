@@ -1,0 +1,36 @@
+name: Business Status Check
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 한국시간 09:00
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 1. uv 설치
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
+
+      # 2. 의존성 설치 (uv.lock 기반)
+      # --frozen: lock 파일과 불일치 시 에러 (엄격한 관리)
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # 3. 스크립트 실행
+      # 'uv run'을 쓰면 가상환경을 알아서 감지하고 실행해줍니다.
+      # PYTHONPATH=. : 현재 폴더를 파이썬 경로에 추가하여 shared 모듈 인식
+      - name: Run Business Check
+        env:
+          PYTHONPATH: .
+          NTS_API_KEY: ${{ secrets.NTS_API_KEY }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }} # JSON 내용 전체
+        run: uv run python tasks/business_check/main.py
