@@ -2,18 +2,16 @@ import os
 import sys
 import json
 import requests
-import time
 from datetime import datetime
 
-# shared 모듈을 불러오기 위한 임포트 (GitHub Actions의 PYTHONPATH 설정에 의존)
 from shared.sheets import get_connection
-from shared.notifier import send_message
+from shared.notifier import Notifier
 
-# --- 설정 ---
-# 시트 ID는 환경변수로 관리하거나 여기에 직접 적어도 무방(공개 repo가 아니라면)
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 API_KEY = os.environ.get("NTS_API_KEY")
 NTS_API_URL = f"https://api.odcloud.kr/api/nts-businessman/v1/status?serviceKey={API_KEY}"
+
+notifier = Notifier(task_key="BUSINESS", task_name="사업자 상태 점검")
 
 def fetch_status_batch(b_no_list):
     """국세청 API로 100개씩 상태 조회"""
@@ -66,10 +64,9 @@ def run():
     # 1. 시트 데이터 가져오기
     try:
         sheet = get_connection(sheet_url)
-        # 1열(A열) 사업자 번호 가져오기 (헤더 제외 2행부터)
-        business_numbers = sheet.col_values(1)[1:]
+        business_numbers = sheet.col_values(1)[1:]  # A열, 헤더 제외
     except Exception as e:
-        send_message(f"🚨 [오류] 시트 연결 실패: {e}")
+        notifier.send(status="실패", details=f"시트 연결 오류: {e}")
         return
 
     if not business_numbers:
@@ -103,19 +100,16 @@ def run():
         sheet.update(range_name=f'B2:B{end_row}', values=status_col)
         sheet.update(range_name=f'C2:C{end_row}', values=date_col)
         print("✅ 시트 업데이트 완료")
-        
-        # 5. 결과 알림
+
         today_str = datetime.now().strftime("%Y-%m-%d")
-        msg = (f"📅 [{today_str}] 사업자 상태 점검 완료\n"
-               f"🔍 총 조회: {len(business_numbers)}건\n"
-               f"❌ 폐업 확인: {closed_count}건\n"
-               f"✅ 구글 시트가 최신 상태로 갱신되었습니다.")
-        send_message(msg)
-        
+        details = (f"📅 {today_str}\n"
+                   f"🔍 총 조회: {len(business_numbers)}건\n"
+                   f"❌ 폐업: {closed_count}건")
+        notifier.send(status="완료", details=details)
+
     except Exception as e:
-        err_msg = f"🚨 [오류] 시트 업데이트 중 실패: {e}"
-        print(err_msg)
-        send_message(err_msg)
+        print(f"시트 업데이트 실패: {e}")
+        notifier.send(status="실패", details=f"시트 업데이트 오류: {e}")
 
 if __name__ == "__main__":
     if not API_KEY:
