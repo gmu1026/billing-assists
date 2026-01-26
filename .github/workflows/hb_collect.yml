@@ -1,0 +1,42 @@
+name: HB Data Collection
+
+on:
+  # 매일 새벽 2시 (KST 11시)
+  schedule:
+    - cron: '0 2 * * *'
+  
+  # 수동 실행
+  workflow_dispatch:
+    inputs:
+      invoice_month:
+        description: 'Invoice Month (YYYYMM, 빈칸=자동으로 전월)'
+        required: false
+        default: ''
+
+jobs:
+  collect-hb-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run HB Data Collection
+        env:
+          PYTHONPATH: .
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          ALIBABA_COOKIE: ${{ secrets.ALIBABA_COOKIE }}
+          AKAMAI_COOKIE: ${{ secrets.AKAMAI_COOKIE }}
+          GCP_COOKIE: ${{ secrets.GCP_COOKIE }}
+          INVOICE_MONTH: ${{ github.event.inputs.invoice_month }}
+          WEBHOOK_URL_HB_COLLECT: ${{ secrets.WEBHOOK_URL_HB_COLLECT }}
+        run: uv run python tasks/hb_collect/main.py

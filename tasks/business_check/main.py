@@ -90,11 +90,11 @@ def process_worksheet(csp_name: str, worksheet) -> dict:
         if '폐업' in info['state']:
             closed_count += 1
 
-    # 시트 업데이트
+    # 시트 업데이트 (C=상태, D=날짜 — A=사업자등록번호, B=회사명은 hb_collect에서 관리)
     try:
         end_row = len(business_numbers) + 1
-        worksheet.update(range_name=f'B2:B{end_row}', values=status_col)
-        worksheet.update(range_name=f'C2:C{end_row}', values=date_col)
+        worksheet.update(range_name=f'C2:C{end_row}', values=status_col)
+        worksheet.update(range_name=f'D2:D{end_row}', values=date_col)
         print(f"  [{csp_name}] ✅ 완료 (조회: {len(business_numbers)}, 폐업: {closed_count})")
         return {'total': len(business_numbers), 'closed': closed_count, 'error': None}
 

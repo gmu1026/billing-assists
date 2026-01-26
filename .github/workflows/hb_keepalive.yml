@@ -1,0 +1,78 @@
+name: HB Cookie Keep-Alive
+
+# 목적: 12시간마다 가벼운 API 호출로 쿠키 만료 방지
+# HB 쿠키는 슬라이딩 윈도우 방식으로 API 호출 시 자동 갱신됨
+
+on:
+  schedule:
+    # 12시간마다 (0시, 12시 UTC = 9시, 21시 KST)
+    - cron: '0 */12 * * *'
+  
+  # 수동 실행
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Keep cookies alive
+        env:
+          ALIBABA_COOKIE: ${{ secrets.ALIBABA_COOKIE }}
+          AKAMAI_COOKIE: ${{ secrets.AKAMAI_COOKIE }}
+          GCP_COOKIE: ${{ secrets.GCP_COOKIE }}
+        run: |
+          python - <<'EOF'
+          import os
+          import requests
+          from datetime import datetime
+          
+          CSP_CONFIGS = {
+              "alibaba": "https://alibabacloud.hyperbilling.kr/admin/api/v1/iam/company?status=1",
+              "akamai": "https://akamai.hyperbilling.kr/admin/api/v1/iam/company?status=1",
+              "gcp": "https://gcp.hyperbilling.kr/admin/api/v1/iam/company?status=1"
+          }
+          
+          print(f"\n{'='*70}")
+          print(f"🔄 쿠키 Keep-Alive")
+          print(f"시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+          print(f"{'='*70}\n")
+          
+          for csp, url in CSP_CONFIGS.items():
+              cookie = os.getenv(f'{csp.upper()}_COOKIE')
+              
+              if not cookie:
+                  print(f"⚠️  [{csp.upper()}] 쿠키 없음 - 스킵")
+                  continue
+              
+              try:
+                  response = requests.get(
+                      url,
+                      headers={'Cookie': f'connect.sid={cookie}'},
+                      timeout=30
+                  )
+                  
+                  if response.status_code == 200:
+                      set_cookie = response.headers.get('Set-Cookie')
+                      if set_cookie and 'Expires=' in set_cookie:
+                          expires = set_cookie.split('Expires=')[1].split(';')[0]
+                          print(f"✅ [{csp.upper()}] 쿠키 갱신 완료")
+                          print(f"   만료: {expires}")
+                      else:
+                          print(f"✅ [{csp.upper()}] API 호출 성공")
+                  elif response.status_code == 401:
+                      print(f"❌ [{csp.upper()}] 쿠키 만료 (401) - Secrets 업데이트 필요")
+                      print(f"::error::CSP {csp} 쿠키 갱신 필요")
+                  else:
+                      print(f"⚠️  [{csp.upper()}] HTTP {response.status_code}")
+                      
+              except Exception as e:
+                  print(f"❌ [{csp.upper()}] 에러: {e}")
+              
+              print()
+          
+          print(f"{'='*70}\n")
+          EOF
