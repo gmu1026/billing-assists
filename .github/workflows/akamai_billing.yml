@@ -1,0 +1,45 @@
+name: Akamai Billing Pipeline
+
+on:
+  # 매일 01:00 UTC (KST 10:00)
+  schedule:
+    - cron: '0 1 * * *'
+
+  # 수동 실행
+  workflow_dispatch:
+    inputs:
+      billing_month:
+        description: 'Billing Month (YYYY-MM, 빈칸=자동 전월)'
+        required: false
+        default: ''
+
+jobs:
+  billing-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run Akamai Billing Pipeline
+        env:
+          PYTHONPATH: .
+          AKAMAI_CLIENT_TOKEN: ${{ secrets.AKAMAI_CLIENT_TOKEN }}
+          AKAMAI_CLIENT_SECRET: ${{ secrets.AKAMAI_CLIENT_SECRET }}
+          AKAMAI_ACCESS_TOKEN: ${{ secrets.AKAMAI_ACCESS_TOKEN }}
+          AKAMAI_BASE_URL: ${{ secrets.AKAMAI_BASE_URL }}
+          AKAMAI_COOKIE: ${{ secrets.AKAMAI_COOKIE }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          BQ_DATASET: ${{ secrets.BQ_DATASET }}
+          BILLING_MONTH: ${{ github.event.inputs.billing_month }}
+          WEBHOOK_URL_AKAMAI_BILLING: ${{ secrets.WEBHOOK_URL_AKAMAI_BILLING }}
+        run: uv run python tasks/akamai_billing/main.py

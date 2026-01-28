@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "edgegrid-python>=2.0.4",
+    "google-cloud-bigquery>=3.25.0",
     "gspread>=6.2.1",
     "oauth2client>=4.1.3",
     "python-dotenv>=1.2.1",
