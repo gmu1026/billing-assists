@@ -70,12 +70,8 @@ class AkamaiClient:
 
             if response.status_code == 200:
                 return response.json(), None
-            elif response.status_code == 401:
-                return None, "401 - accountSwitchKey 인증 실패"
-            elif response.status_code == 403:
-                return None, "403 - Access Denied"
             else:
-                return None, f"{response.status_code} - {response.text[:100]}"
+                return None, f"{response.status_code} - {response.text[:200]}"
 
         except Exception as e:
             return None, f"Exception: {str(e)}"
