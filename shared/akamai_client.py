@@ -9,7 +9,6 @@ import time
 import threading
 import requests
 from akamai.edgegrid import EdgeGridAuth
-from urllib.parse import urljoin
 from typing import Dict, List, Optional, Tuple
 
 
@@ -43,13 +42,16 @@ class AkamaiClient:
     """Akamai Billing API 클라이언트"""
 
     def __init__(self, client_token: str, client_secret: str, access_token: str, base_url: str):
+        if not base_url:
+            raise ValueError("AKAMAI_BASE_URL이 비어있습니다. GitHub Secret을 확인하세요.")
+
         self.session = requests.Session()
         self.session.auth = EdgeGridAuth(
             client_token=client_token,
             client_secret=client_secret,
             access_token=access_token,
         )
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
 
     def _make_request(self, path: str, params: Dict) -> Tuple[Optional[Dict], Optional[str]]:
         """
@@ -60,7 +62,7 @@ class AkamaiClient:
         """
         try:
             response = self.session.get(
-                urljoin(self.base_url, path),
+                self.base_url + path,
                 params=params,
                 headers={"Content-Type": "application/json"},
                 timeout=30,
