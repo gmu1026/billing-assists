@@ -1,12 +1,12 @@
 name: HB Cookie Keep-Alive
 
-# 목적: 12시간마다 가벼운 API 호출로 쿠키 만료 방지
+# 목적: 1시간마다 가벼운 API 호출로 쿠키 만료 방지
 # HB 쿠키는 슬라이딩 윈도우 방식으로 API 호출 시 자동 갱신됨
 
 on:
   schedule:
-    # 12시간마다 (0시, 12시 UTC = 9시, 21시 KST)
-    - cron: '0 */12 * * *'
+    # 1시간마다 (매 정각)
+    - cron: '0 * * * *'
   
   # 수동 실행
   workflow_dispatch:
