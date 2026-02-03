@@ -109,8 +109,9 @@ def update_sheet(csp_name: str, contracts: list, worksheet) -> bool:
     print(f"  [{csp_name.upper()}] 시트 업데이트 중...")
 
     try:
-        # 데이터 준비 (사업자등록번호 있는 것만, 정렬)
+        # 데이터 준비 (사업자등록번호 있는 것만, 중복 제거, 정렬)
         rows = []
+        seen_licenses = set()
         for contract in contracts:
             license_no = contract.get('company_license', '')
             company_name = contract.get('company_name', '')
@@ -118,7 +119,12 @@ def update_sheet(csp_name: str, contracts: list, worksheet) -> bool:
             if not license_no or str(license_no).strip() == '':
                 continue
 
-            rows.append([str(license_no).strip(), company_name])
+            license_key = str(license_no).strip()
+            if license_key in seen_licenses:
+                continue
+            seen_licenses.add(license_key)
+
+            rows.append([license_key, company_name])
 
         rows.sort(key=lambda r: r[0])
 
@@ -167,7 +173,12 @@ def update_sheet(csp_name: str, contracts: list, worksheet) -> bool:
                 'textFormat': {'bold': True}
             })
 
-        print(f"  [{csp_name.upper()}] {len(rows)}개 회사 업데이트 완료")
+        dup_count = len(contracts) - len(rows) - sum(
+            1 for c in contracts
+            if not c.get('company_license') or str(c.get('company_license', '')).strip() == ''
+        )
+        dup_msg = f" (중복 {dup_count}건 제거)" if dup_count > 0 else ""
+        print(f"  [{csp_name.upper()}] {len(rows)}개 회사 업데이트 완료{dup_msg}")
         return True
 
     except Exception as e:
