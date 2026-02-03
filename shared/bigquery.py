@@ -79,10 +79,10 @@ PRODUCT_USAGE_SCHEMA = [
     bigquery.SchemaField("stat_type", "STRING"),
     bigquery.SchemaField("unit", "STRING"),
     bigquery.SchemaField("is_billable", "BOOLEAN"),
-    bigquery.SchemaField("date", "STRING"),
+    bigquery.SchemaField("date", "DATE"),
     bigquery.SchemaField("value", "FLOAT64"),
     bigquery.SchemaField("data_status", "STRING"),
-    bigquery.SchemaField("request_date", "STRING"),
+    bigquery.SchemaField("request_date", "TIMESTAMP"),
 ]
 
 REPORTING_GROUP_USAGE_SCHEMA = [
@@ -98,10 +98,10 @@ REPORTING_GROUP_USAGE_SCHEMA = [
     bigquery.SchemaField("stat_type", "STRING"),
     bigquery.SchemaField("unit", "STRING"),
     bigquery.SchemaField("is_billable", "BOOLEAN"),
-    bigquery.SchemaField("date", "STRING"),
+    bigquery.SchemaField("date", "DATE"),
     bigquery.SchemaField("value", "FLOAT64"),
     bigquery.SchemaField("data_status", "STRING"),
-    bigquery.SchemaField("request_date", "STRING"),
+    bigquery.SchemaField("request_date", "TIMESTAMP"),
 ]
 
 PRODUCTS_SCHEMA = [
@@ -114,7 +114,7 @@ PRODUCTS_SCHEMA = [
     bigquery.SchemaField("reporting_group_id", "STRING"),
     bigquery.SchemaField("reporting_group_name", "STRING"),
     bigquery.SchemaField("month", "STRING"),
-    bigquery.SchemaField("start", "STRING"),
-    bigquery.SchemaField("end", "STRING"),
-    bigquery.SchemaField("request_date", "STRING"),
+    bigquery.SchemaField("start", "DATE"),
+    bigquery.SchemaField("end", "DATE"),
+    bigquery.SchemaField("request_date", "TIMESTAMP"),
 ]
