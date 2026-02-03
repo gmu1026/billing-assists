@@ -299,6 +299,11 @@ def collect_all(
 
 # ─── JSONL 변환 (인메모리) ───────────────────────────────────
 
+def to_billing_date(billing_month: str) -> str:
+    """YYYY-MM → YYYY-MM-01 (DATE 타입용)"""
+    return f"{billing_month}-01"
+
+
 def flatten_product_usage(raw_data: Dict, billing_month: str) -> List[Dict]:
     records = []
     for record in raw_data.values():
@@ -320,7 +325,7 @@ def flatten_product_usage(raw_data: Dict, billing_month: str) -> List[Dict]:
                 is_billable = stat.get("isBillable")
                 for v in stat.get("values", []):
                     records.append({
-                        "billing_month": billing_month,
+                        "billing_month": to_billing_date(billing_month),
                         "contract_id": contract_id,
                         "account_id": account_id,
                         "company_name": company_name,
@@ -361,7 +366,7 @@ def flatten_reporting_group_usage(raw_data: Dict, billing_month: str) -> List[Di
                 is_billable = stat.get("isBillable")
                 for v in stat.get("values", []):
                     records.append({
-                        "billing_month": billing_month,
+                        "billing_month": to_billing_date(billing_month),
                         "contract_id": contract_id,
                         "account_id": account_id,
                         "company_name": company_name,
@@ -402,7 +407,7 @@ def flatten_products(raw_data: Dict, billing_month: str) -> List[Dict]:
                 if reporting_groups:
                     for rg in reporting_groups:
                         records.append({
-                            "billing_month": billing_month,
+                            "billing_month": to_billing_date(billing_month),
                             "contract_id": contract_id,
                             "account_id": account_id,
                             "company_name": company_name,
@@ -417,7 +422,7 @@ def flatten_products(raw_data: Dict, billing_month: str) -> List[Dict]:
                         })
                 else:
                     records.append({
-                        "billing_month": billing_month,
+                        "billing_month": to_billing_date(billing_month),
                         "contract_id": contract_id,
                         "account_id": account_id,
                         "company_name": company_name,
@@ -440,24 +445,33 @@ def upload_to_bigquery(
     product_usage: List[Dict],
     rg_usage: List[Dict],
     dataset_id: str,
+    billing_month: str,
 ) -> Dict[str, int]:
-    """3개 테이블 순차 적재"""
+    """3개 테이블 순차 적재 (billing_month 월별 파티셔닝, 해당 월만 덮어쓰기)"""
     client = get_bq_client()
     result = {}
 
+    # YYYY-MM → YYYYMM (파티션 데코레이터용)
+    partition_value = billing_month.replace("-", "")
+
     if products:
-        result["products"] = upload_records(client, dataset_id, "products", products, PRODUCTS_SCHEMA)
+        result["products"] = upload_records(
+            client, dataset_id, "products", products, PRODUCTS_SCHEMA,
+            partition_field="billing_month", partition_value=partition_value
+        )
         print(f"  products: {result['products']}행 적재")
 
     if product_usage:
         result["product_usage"] = upload_records(
-            client, dataset_id, "product_usage", product_usage, PRODUCT_USAGE_SCHEMA
+            client, dataset_id, "product_usage", product_usage, PRODUCT_USAGE_SCHEMA,
+            partition_field="billing_month", partition_value=partition_value
         )
         print(f"  product_usage: {result['product_usage']}행 적재")
 
     if rg_usage:
         result["reporting_group_usage"] = upload_records(
-            client, dataset_id, "reporting_group_usage", rg_usage, REPORTING_GROUP_USAGE_SCHEMA
+            client, dataset_id, "reporting_group_usage", rg_usage, REPORTING_GROUP_USAGE_SCHEMA,
+            partition_field="billing_month", partition_value=partition_value
         )
         print(f"  reporting_group_usage: {result['reporting_group_usage']}행 적재")
 
@@ -530,7 +544,7 @@ def main():
 
         # 7. BigQuery 적재
         print("\n[5/5] BigQuery 적재")
-        bq_result = upload_to_bigquery(products_flat, usage_flat, rg_flat, dataset_id)
+        bq_result = upload_to_bigquery(products_flat, usage_flat, rg_flat, dataset_id, billing_month)
 
         # 8. 완료 알림
         duration = time.time() - start_time
