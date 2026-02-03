@@ -39,6 +39,7 @@ jobs:
           AKAMAI_BASE_URL: ${{ secrets.AKAMAI_BASE_URL }}
           AKAMAI_COOKIE: ${{ secrets.AKAMAI_COOKIE }}
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          BQ_SA_KEY: ${{ secrets.BQ_SA_KEY }}
           BQ_PROJECT: ${{ secrets.BQ_PROJECT }}
           BQ_DATASET: ${{ secrets.BQ_DATASET }}
           BILLING_MONTH: ${{ github.event.inputs.billing_month }}

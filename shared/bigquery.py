@@ -13,10 +13,10 @@ from google.oauth2 import service_account
 
 
 def get_bq_client() -> bigquery.Client:
-    """GCP_SA_KEY JSON으로 인증된 BigQuery 클라이언트 반환"""
-    json_key_string = os.environ.get("GCP_SA_KEY")
+    """BigQuery 클라이언트 반환 (BQ_SA_KEY 우선, 없으면 GCP_SA_KEY 사용)"""
+    json_key_string = os.environ.get("BQ_SA_KEY") or os.environ.get("GCP_SA_KEY")
     if not json_key_string:
-        raise ValueError("GCP_SA_KEY 환경변수가 설정되지 않았습니다.")
+        raise ValueError("BQ_SA_KEY 또는 GCP_SA_KEY 환경변수가 설정되지 않았습니다.")
 
     credentials_dict = json.loads(json_key_string)
     credentials = service_account.Credentials.from_service_account_info(credentials_dict)

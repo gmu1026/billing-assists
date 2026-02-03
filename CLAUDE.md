@@ -43,7 +43,8 @@ PYTHONPATH=. uv run python tasks/akamai_billing/main.py
 - `AKAMAI_ACCESS_TOKEN`: Akamai EdgeGrid access token
 - `AKAMAI_BASE_URL`: Akamai API base URL
 - `AKAMAI_COOKIE`: Akamai HyperBilling connect.sid 쿠키 (계약 목록 조회용)
-- `BQ_PROJECT`: (선택) BigQuery 프로젝트 ID (미지정 시 GCP_SA_KEY의 project_id 사용)
+- `BQ_SA_KEY`: (선택) BigQuery 전용 서비스 계정 JSON (미지정 시 GCP_SA_KEY 사용)
+- `BQ_PROJECT`: (선택) BigQuery 프로젝트 ID (미지정 시 서비스 계정의 project_id 사용)
 - `BQ_DATASET`: BigQuery 데이터셋 이름 (기본값: akamai_billing)
 - `BILLING_MONTH`: (선택) 빌링 월 YYYY-MM 형식 (미지정 시 자동으로 전월)
 - `WEBHOOK_URL_AKAMAI_BILLING`: Google Chat webhook URL
