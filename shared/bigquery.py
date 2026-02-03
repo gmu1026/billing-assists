@@ -20,7 +20,9 @@ def get_bq_client() -> bigquery.Client:
 
     credentials_dict = json.loads(json_key_string)
     credentials = service_account.Credentials.from_service_account_info(credentials_dict)
-    project_id = credentials_dict.get("project_id")
+
+    # BQ_PROJECT 환경변수로 프로젝트 오버라이드 가능
+    project_id = os.environ.get("BQ_PROJECT") or credentials_dict.get("project_id")
 
     return bigquery.Client(credentials=credentials, project=project_id)
 

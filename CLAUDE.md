@@ -43,6 +43,7 @@ PYTHONPATH=. uv run python tasks/akamai_billing/main.py
 - `AKAMAI_ACCESS_TOKEN`: Akamai EdgeGrid access token
 - `AKAMAI_BASE_URL`: Akamai API base URL
 - `AKAMAI_COOKIE`: Akamai HyperBilling connect.sid 쿠키 (계약 목록 조회용)
+- `BQ_PROJECT`: (선택) BigQuery 프로젝트 ID (미지정 시 GCP_SA_KEY의 project_id 사용)
 - `BQ_DATASET`: BigQuery 데이터셋 이름 (기본값: akamai_billing)
 - `BILLING_MONTH`: (선택) 빌링 월 YYYY-MM 형식 (미지정 시 자동으로 전월)
 - `WEBHOOK_URL_AKAMAI_BILLING`: Google Chat webhook URL
@@ -73,6 +74,6 @@ shared/              # Reusable modules across tasks
 - `.github/workflows/business_status.yml`: 매일 09:00 KST — 사업자 상태 점검
 - `.github/workflows/hb_collect.yml`: 매일 11:00 KST — HB 데이터 수집 (수동 실행 시 invoice_month 지정 가능)
 - `.github/workflows/hb_keepalive.yml`: 1시간마다 (매 정각) — HB 쿠키 세션 유지 (가벼운 API ping)
-- `.github/workflows/akamai_billing.yml`: 매일 10:00 KST — Akamai 빌링 파이프라인 (수동 실행 시 billing_month 지정 가능)
+- `.github/workflows/akamai_billing.yml`: 매일 09:00 KST — Akamai 빌링 파이프라인 (수동 실행 시 billing_month 지정 가능)
 
 모든 워크플로우는 `uv sync --frozen`으로 의존성을 설치합니다 (keepalive 제외 — 인라인 스크립트 사용).

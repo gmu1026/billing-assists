@@ -1,9 +1,9 @@
 name: Akamai Billing Pipeline
 
 on:
-  # 매일 01:00 UTC (KST 10:00)
+  # 매일 00:00 UTC (KST 09:00)
   schedule:
-    - cron: '0 1 * * *'
+    - cron: '0 0 * * *'
 
   # 수동 실행
   workflow_dispatch:
@@ -39,6 +39,7 @@ jobs:
           AKAMAI_BASE_URL: ${{ secrets.AKAMAI_BASE_URL }}
           AKAMAI_COOKIE: ${{ secrets.AKAMAI_COOKIE }}
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          BQ_PROJECT: ${{ secrets.BQ_PROJECT }}
           BQ_DATASET: ${{ secrets.BQ_DATASET }}
           BILLING_MONTH: ${{ github.event.inputs.billing_month }}
           WEBHOOK_URL_AKAMAI_BILLING: ${{ secrets.WEBHOOK_URL_AKAMAI_BILLING }}
