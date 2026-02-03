@@ -299,6 +299,15 @@ def collect_all(
 
 # ─── JSONL 변환 (인메모리) ───────────────────────────────────
 
+def to_date(value: str) -> str:
+    """YYYY-MM → YYYY-MM-01 (DATE 타입용), 이미 YYYY-MM-DD면 그대로 반환"""
+    if not value:
+        return None
+    if len(value) == 7:  # YYYY-MM
+        return f"{value}-01"
+    return value  # YYYY-MM-DD 또는 다른 형식
+
+
 def to_billing_date(billing_month: str) -> str:
     """YYYY-MM → YYYY-MM-01 (DATE 타입용)"""
     return f"{billing_month}-01"
@@ -394,8 +403,8 @@ def flatten_products(raw_data: Dict, billing_month: str) -> List[Dict]:
 
         data = record.get("data", {})
         request_date = data.get("requestDate")
-        start = data.get("start")
-        end = data.get("end")
+        start = to_date(data.get("start"))
+        end = to_date(data.get("end"))
 
         for period in data.get("usagePeriods", []):
             month = period.get("month")
