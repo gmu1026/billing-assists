@@ -73,7 +73,7 @@ shared/              # Reusable modules across tasks
 ## GitHub Actions
 
 - `.github/workflows/business_status.yml`: 매일 09:00 KST — 사업자 상태 점검
-- `.github/workflows/hb_collect.yml`: 매일 11:00 KST — HB 데이터 수집 (수동 실행 시 invoice_month 지정 가능)
+- `.github/workflows/hb_collect.yml`: 매일 09:00 KST — HB 데이터 수집 (수동 실행 시 invoice_month 지정 가능)
 - `.github/workflows/hb_keepalive.yml`: 1시간마다 (매 정각) — HB 쿠키 세션 유지 (가벼운 API ping)
 - `.github/workflows/akamai_billing.yml`: 매일 09:00 KST — Akamai 빌링 파이프라인 (수동 실행 시 billing_month 지정 가능)
 

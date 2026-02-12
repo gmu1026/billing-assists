@@ -1,9 +1,9 @@
 name: HB Data Collection
 
 on:
-  # 매일 새벽 2시 (KST 11시)
+  # 매일 00:00 UTC (KST 09:00)
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 0 * * *'
   
   # 수동 실행
   workflow_dispatch:
