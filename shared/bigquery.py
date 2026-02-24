@@ -56,11 +56,21 @@ def upload_records(
     if not records:
         return 0
 
-    # 파티션 데코레이터 사용 시 해당 파티션만 덮어쓰기
-    if partition_value:
-        table_ref = f"{client.project}.{dataset_id}.{table_id}${partition_value}"
-    else:
-        table_ref = f"{client.project}.{dataset_id}.{table_id}"
+    full_table_id = f"{client.project}.{dataset_id}.{table_id}"
+
+    # 특정 월 파티션만 덮어쓰기: 해당 월 DML 삭제 후 APPEND
+    # (파티션 데코레이터 대신 DELETE+APPEND 방식 → 테이블 파티션 설정과 무관하게 동작)
+    if partition_value and partition_field:
+        billing_date = f"{partition_value[:4]}-{partition_value[4:6]}-01"
+        delete_sql = (
+            f"DELETE FROM `{full_table_id}` "
+            f"WHERE DATE_TRUNC(`{partition_field}`, MONTH) = DATE '{billing_date}'"
+        )
+        try:
+            client.query(delete_sql).result()
+        except Exception:
+            pass  # 테이블 미존재 시 삭제 스킵
+        write_disposition = "WRITE_APPEND"
 
     job_config = bigquery.LoadJobConfig(
         schema=schema,
@@ -68,14 +78,13 @@ def upload_records(
         source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
     )
 
-    # 파티션 설정 (월별)
     if partition_field:
         job_config.time_partitioning = bigquery.TimePartitioning(
             type_=bigquery.TimePartitioningType.MONTH,
             field=partition_field,
         )
 
-    load_job = client.load_table_from_json(records, table_ref, job_config=job_config)
+    load_job = client.load_table_from_json(records, full_table_id, job_config=job_config)
     load_job.result()  # 완료 대기
 
     return load_job.output_rows
