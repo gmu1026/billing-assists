@@ -78,12 +78,6 @@ def upload_records(
         source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
     )
 
-    if partition_field:
-        job_config.time_partitioning = bigquery.TimePartitioning(
-            type_=bigquery.TimePartitioningType.MONTH,
-            field=partition_field,
-        )
-
     load_job = client.load_table_from_json(records, full_table_id, job_config=job_config)
     load_job.result()  # 완료 대기
 
