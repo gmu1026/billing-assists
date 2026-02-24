@@ -113,7 +113,8 @@ def check_data_status(
             details.append(f"  {acc_name} ({contract_id}): Usage 조회 실패 - {err}")
             continue
 
-        status = usage.get("dataStatus", "UNKNOWN")
+        periods = usage.get("usagePeriods", [])
+        status = periods[0].get("dataStatus", "NO_DATA") if periods else "NO_DATA"
         statuses[status] = statuses.get(status, 0) + 1
         details.append(f"  {acc_name} ({contract_id}): {status}")
 
@@ -271,32 +272,33 @@ def flatten_product_usage(raw_data: Dict, billing_month: str) -> List[Dict]:
         product_name = record.get("productName")
 
         data = record.get("data", {})
-        data_status = data.get("dataStatus")
         request_date = data.get("requestDate")
 
         for period in data.get("usagePeriods", []):
             region = period.get("region")
+            data_status = period.get("dataStatus")
+            date = period.get("end")
             for stat in period.get("stats", []):
                 stat_type = stat.get("statType")
                 unit = stat.get("unit")
                 is_billable = stat.get("isBillable")
-                for v in stat.get("values", []):
-                    records.append({
-                        "billing_month": to_billing_date(billing_month),
-                        "account_name": account_name,
-                        "account_switch_key": account_switch_key,
-                        "contract_id": contract_id,
-                        "product_id": product_id,
-                        "product_name": product_name,
-                        "region": region,
-                        "stat_type": stat_type,
-                        "unit": unit,
-                        "is_billable": is_billable,
-                        "date": v.get("date"),
-                        "value": v.get("value"),
-                        "data_status": data_status,
-                        "request_date": request_date,
-                    })
+                value = stat.get("value")
+                records.append({
+                    "billing_month": to_billing_date(billing_month),
+                    "account_name": account_name,
+                    "account_switch_key": account_switch_key,
+                    "contract_id": contract_id,
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "region": region,
+                    "stat_type": stat_type,
+                    "unit": unit,
+                    "is_billable": is_billable,
+                    "date": date,
+                    "value": value,
+                    "data_status": data_status,
+                    "request_date": request_date,
+                })
     return records
 
 
