@@ -8,6 +8,7 @@ EdgeGrid 인증을 사용하여 Akamai Billing API를 호출합니다.
 import time
 import threading
 import requests
+from requests.adapters import HTTPAdapter
 from akamai.edgegrid import EdgeGridAuth
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -51,6 +52,9 @@ class AkamaiClient:
             client_secret=client_secret,
             access_token=access_token,
         )
+        # 동시 요청 수에 맞게 커넥션 풀 확장
+        adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
+        self.session.mount("https://", adapter)
         self.base_url = base_url.rstrip("/")
 
     def _make_request(self, path: str, params: Dict) -> Tuple[Optional[Any], Optional[str]]:

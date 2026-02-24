@@ -9,7 +9,7 @@ import os
 import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from shared.notifier import Notifier
 from shared.akamai_client import AkamaiClient, RateLimiter, extract_products
@@ -54,78 +54,6 @@ def fetch_account_switch_keys(client: AkamaiClient, client_id: str) -> List[Dict
 
     print(f"총 {len(keys)}개 계정 조회 완료")
     return keys
-
-
-# ─── 상태 확인 ───────────────────────────────────────────────
-
-def check_data_status(
-    client: AkamaiClient,
-    rate_limiter: RateLimiter,
-    accounts: List[Dict],
-    start: str,
-    end: str,
-) -> Tuple[bool, str]:
-    """
-    샘플 계정으로 monthly-summary 데이터 수집 상태 확인
-
-    Returns:
-        (is_ready, report_text)
-    """
-    n = len(accounts)
-    sample_count = min(5, n)
-    step = max(1, n // sample_count)
-    samples = [accounts[i * step] for i in range(sample_count)]
-
-    statuses: Dict[str, int] = {}
-    details: List[str] = []
-
-    for account in samples:
-        acc_name = account["accountName"]
-        acc_key = account["accountSwitchKey"]
-
-        # contracts 조회
-        rate_limiter.acquire()
-        contracts, err = client.get_contracts(acc_key)
-        if err or not contracts:
-            details.append(f"  {acc_name}: 계약 조회 실패 - {err}")
-            continue
-
-        contract_id = contracts[0]
-
-        # products 조회
-        rate_limiter.acquire()
-        products_data, err = client.get_products(contract_id, acc_key, start, end)
-        if err or not products_data:
-            details.append(f"  {acc_name} ({contract_id}): Product 조회 실패 - {err}")
-            continue
-
-        products = extract_products(products_data)
-        if not products:
-            details.append(f"  {acc_name} ({contract_id}): Product 없음")
-            continue
-
-        prod_id = products[0].get("productId")
-
-        # monthly-summary usage 조회 및 dataStatus 확인
-        rate_limiter.acquire()
-        usage, err = client.get_product_usage_monthly(contract_id, acc_key, prod_id, start, end)
-        if err or not usage:
-            details.append(f"  {acc_name} ({contract_id}): Usage 조회 실패 - {err}")
-            continue
-
-        periods = usage.get("usagePeriods", [])
-        status = periods[0].get("dataStatus", "NO_DATA") if periods else "NO_DATA"
-        statuses[status] = statuses.get(status, 0) + 1
-        details.append(f"  {acc_name} ({contract_id}): {status}")
-
-    collecting = statuses.get("COLLECTING_DATA", 0)
-    is_ready = collecting == 0 and len(statuses) > 0
-
-    status_lines = "\n".join(f"  {k}: {v}건" for k, v in sorted(statuses.items()))
-    detail_lines = "\n".join(details)
-    report = f"샘플 {sample_count}개 상태:\n{status_lines}\n\n{detail_lines}"
-
-    return is_ready, report
 
 
 # ─── 단일 계정 처리 ─────────────────────────────────────────
@@ -353,42 +281,29 @@ def main():
         )
 
         # 3. accountSwitchKey 목록 조회
-        print("\n[1/5] 계정 목록 조회")
+        print("\n[1/4] 계정 목록 조회")
         accounts = fetch_account_switch_keys(akamai_client, client_id)
 
         if not accounts:
             notifier.send("실패", "계정 목록이 비어있습니다.")
             return
 
-        # 4. 상태 확인 (샘플 계정으로 monthly-summary dataStatus 점검)
-        print("\n[2/5] 데이터 상태 확인")
-        status_limiter = RateLimiter(RATE_LIMIT_PER_MINUTE)
-        is_ready, status_report = check_data_status(
-            akamai_client, status_limiter, accounts, billing_month, next_month
-        )
-
-        if not is_ready:
-            notifier.send("수집 중", f"{billing_month}\n{status_report}")
-            print("\n데이터 수집 중 — 파이프라인 종료")
-            return
-
-        notifier.send("수집 완료", f"{billing_month} — 데이터 수집 시작\n{status_report}")
-
-        # 5. 전체 데이터 수집 (계정별 병렬)
-        print(f"\n[3/5] 데이터 수집 ({len(accounts)}개 계정)")
+        # 4. 전체 데이터 수집 (계정별 병렬)
+        # monthly-summary 엔드포인트는 COLLECTING_DATA 상태가 없으므로 별도 상태 확인 불필요
+        print(f"\n[2/4] 데이터 수집 ({len(accounts)}개 계정)")
         collected = collect_all(akamai_client, accounts, billing_month, next_month)
 
         success = collected["success_count"]
         failed = collected["failed"]
         print(f"\n수집 완료: 성공 {success}, 실패 {len(failed)}")
 
-        # 6. JSONL 변환 (인메모리)
-        print("\n[4/5] 데이터 변환")
+        # 5. JSONL 변환 (인메모리)
+        print("\n[3/4] 데이터 변환")
         usage_flat = flatten_product_usage(collected["product_usage"], billing_month)
         print(f"  product_usage: {len(usage_flat)}건")
 
-        # 7. BigQuery 적재
-        print("\n[5/5] BigQuery 적재")
+        # 6. BigQuery 적재
+        print("\n[4/4] BigQuery 적재")
         bq_result = upload_to_bigquery(usage_flat, dataset_id, billing_month)
 
         # 8. 완료 알림
