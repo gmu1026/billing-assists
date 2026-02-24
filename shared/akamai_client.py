@@ -9,7 +9,7 @@ import time
 import threading
 import requests
 from akamai.edgegrid import EdgeGridAuth
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class RateLimiter:
@@ -53,12 +53,12 @@ class AkamaiClient:
         )
         self.base_url = base_url.rstrip("/")
 
-    def _make_request(self, path: str, params: Dict) -> Tuple[Optional[Dict], Optional[str]]:
+    def _make_request(self, path: str, params: Dict) -> Tuple[Optional[Any], Optional[str]]:
         """
         API 요청 실행
 
         Returns:
-            (data, error_message) 튜플
+            (data, error_message) 튜플. data는 dict 또는 list.
         """
         try:
             response = self.session.get(
@@ -76,28 +76,30 @@ class AkamaiClient:
         except Exception as e:
             return None, f"Exception: {str(e)}"
 
+    def get_account_switch_keys(self, client_id: str) -> Tuple[Optional[List], Optional[str]]:
+        """clientId에 속한 accountSwitchKey 목록 조회"""
+        path = f"/identity-management/v3/api-clients/{client_id}/account-switch-keys"
+        return self._make_request(path, {})
+
+    def get_contracts(self, account_switch_key: str) -> Tuple[Optional[List], Optional[str]]:
+        """accountSwitchKey에 속한 계약 ID 목록 조회 (문자열 리스트 반환)"""
+        path = "/contract-api/v1/contracts/identifiers"
+        return self._make_request(path, {"accountSwitchKey": account_switch_key})
+
     def get_products(
-        self, contract_id: str, account_id: str, start: str, end: str
+        self, contract_id: str, account_switch_key: str, start: str, end: str
     ) -> Tuple[Optional[Dict], Optional[str]]:
         """계약의 Product 목록 조회"""
         path = f"/billing/v1/contracts/{contract_id}/products"
-        params = {"accountSwitchKey": account_id, "start": start, "end": end}
+        params = {"accountSwitchKey": account_switch_key, "start": start, "end": end}
         return self._make_request(path, params)
 
-    def get_product_usage(
-        self, contract_id: str, account_id: str, product_id: str, month: str
+    def get_product_usage_monthly(
+        self, contract_id: str, account_switch_key: str, product_id: str, start: str, end: str
     ) -> Tuple[Optional[Dict], Optional[str]]:
-        """Product 일별 사용량 조회"""
-        path = f"/billing/v1/contracts/{contract_id}/products/{product_id}/usage/daily"
-        params = {"accountSwitchKey": account_id, "month": month}
-        return self._make_request(path, params)
-
-    def get_reporting_group_usage(
-        self, account_id: str, reporting_group_id: str, product_id: str, month: str
-    ) -> Tuple[Optional[Dict], Optional[str]]:
-        """Reporting Group 일별 사용량 조회"""
-        path = f"/billing/v1/reporting-groups/{reporting_group_id}/products/{product_id}/usage/daily"
-        params = {"accountSwitchKey": account_id, "month": month}
+        """Product monthly-summary 사용량 조회 (말일자 데이터)"""
+        path = f"/billing/v1/contracts/{contract_id}/products/{product_id}/usage/monthly-summary"
+        params = {"accountSwitchKey": account_switch_key, "start": start, "end": end}
         return self._make_request(path, params)
 
 

@@ -2,6 +2,7 @@
 Akamai Billing Pipeline
 
 상태확인 → 수집 → 변환 → BigQuery 적재 통합 파이프라인
+flow: clientId → accountSwitchKeys → contracts → products → monthly-summary usage
 """
 
 import os
@@ -11,18 +12,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple
 
 from shared.notifier import Notifier
-from shared.hb_client import HBApiClient
 from shared.akamai_client import AkamaiClient, RateLimiter, extract_products
 from shared.bigquery import (
     get_bq_client,
     upload_records,
     PRODUCT_USAGE_SCHEMA,
-    REPORTING_GROUP_USAGE_SCHEMA,
-    PRODUCTS_SCHEMA,
 )
 
 RATE_LIMIT_PER_MINUTE = 100
-MAX_CONCURRENT_REQUESTS = 20
+MAX_WORKERS = 10
 
 notifier = Notifier(task_key="AKAMAI_BILLING", task_name="Akamai 빌링")
 
@@ -41,39 +39,21 @@ def get_billing_month() -> str:
     return f"{now.year}-{now.month - 1:02d}"
 
 
-# ─── 계약 목록 조회 ─────────────────────────────────────────
+# ─── 계정 목록 조회 ──────────────────────────────────────────
 
-def fetch_akamai_contracts(cookie: str) -> List[Dict]:
+def fetch_account_switch_keys(client: AkamaiClient, client_id: str) -> List[Dict]:
     """
-    HyperBilling에서 Akamai 계약 목록 조회
+    clientId에 속한 accountSwitchKey 목록 조회
 
     Returns:
-        [{'contract_id', 'account_id', 'company_name', 'seq'}]
+        [{'accountName': ..., 'accountSwitchKey': ...}, ...]
     """
-    client = HBApiClient("akamai", cookie)
-    response = client.fetch("contract", {"reseller_seq": 0})
+    keys, err = client.get_account_switch_keys(client_id)
+    if err or not keys:
+        raise RuntimeError(f"accountSwitchKey 조회 실패: {err}")
 
-    contracts = []
-    for contract in response.get("data", []):
-        if not contract.get("enabled"):
-            continue
-
-        company_name = contract.get("name", "")
-
-        for account in contract.get("accounts", []):
-            contract_id = account.get("contract_id")
-            account_id = account.get("account_id")
-
-            if contract_id and account_id:
-                contracts.append({
-                    "contract_id": contract_id,
-                    "account_id": account_id,
-                    "company_name": company_name,
-                    "seq": contract.get("seq"),
-                })
-
-    print(f"총 {len(contracts)}개 계약 조회 완료")
-    return contracts
+    print(f"총 {len(keys)}개 계정 조회 완료")
+    return keys
 
 
 # ─── 상태 확인 ───────────────────────────────────────────────
@@ -81,56 +61,61 @@ def fetch_akamai_contracts(cookie: str) -> List[Dict]:
 def check_data_status(
     client: AkamaiClient,
     rate_limiter: RateLimiter,
-    contracts: List[Dict],
-    billing_month: str,
-    next_month: str,
+    accounts: List[Dict],
+    start: str,
+    end: str,
 ) -> Tuple[bool, str]:
     """
-    샘플 계약으로 데이터 수집 상태 확인
+    샘플 계정으로 monthly-summary 데이터 수집 상태 확인
 
     Returns:
         (is_ready, report_text)
     """
-    # 샘플 계약 선정 (균등 분포, 최대 5개)
-    n = len(contracts)
+    n = len(accounts)
     sample_count = min(5, n)
     step = max(1, n // sample_count)
-    samples = [contracts[i * step] for i in range(sample_count)]
+    samples = [accounts[i * step] for i in range(sample_count)]
 
     statuses: Dict[str, int] = {}
     details: List[str] = []
 
-    for contract in samples:
-        cid = contract["contract_id"]
-        aid = contract["account_id"]
-        name = contract["company_name"]
+    for account in samples:
+        acc_name = account["accountName"]
+        acc_key = account["accountSwitchKey"]
 
+        # contracts 조회
         rate_limiter.acquire()
-        products_data, err = client.get_products(cid, aid, billing_month, next_month)
+        contracts, err = client.get_contracts(acc_key)
+        if err or not contracts:
+            details.append(f"  {acc_name}: 계약 조회 실패 - {err}")
+            continue
 
+        contract_id = contracts[0]
+
+        # products 조회
+        rate_limiter.acquire()
+        products_data, err = client.get_products(contract_id, acc_key, start, end)
         if err or not products_data:
-            details.append(f"  {cid} ({name}): 조회 실패 - {err}")
+            details.append(f"  {acc_name} ({contract_id}): Product 조회 실패 - {err}")
             continue
 
         products = extract_products(products_data)
         if not products:
-            details.append(f"  {cid} ({name}): Product 없음")
+            details.append(f"  {acc_name} ({contract_id}): Product 없음")
             continue
 
-        # 첫 번째 product의 usage dataStatus 확인
-        first_product = products[0]
-        pid = first_product.get("productId")
+        prod_id = products[0].get("productId")
 
+        # monthly-summary usage 조회 및 dataStatus 확인
         rate_limiter.acquire()
-        usage_data, usage_err = client.get_product_usage(cid, aid, pid, billing_month)
-
-        if usage_err or not usage_data:
-            details.append(f"  {cid} ({name}): Usage 조회 실패 - {usage_err}")
+        usage, err = client.get_product_usage_monthly(contract_id, acc_key, prod_id, start, end)
+        if err or not usage:
+            details.append(f"  {acc_name} ({contract_id}): Usage 조회 실패 - {err}")
             continue
 
-        status = usage_data.get("dataStatus", "UNKNOWN")
+        status = usage.get("dataStatus", "UNKNOWN")
         statuses[status] = statuses.get(status, 0) + 1
-        details.append(f"  {cid} ({name}): {status}")
+        details.append(f"  {acc_name} ({contract_id}): {status}")
 
     collecting = statuses.get("COLLECTING_DATA", 0)
     is_ready = collecting == 0 and len(statuses) > 0
@@ -142,94 +127,71 @@ def check_data_status(
     return is_ready, report
 
 
-# ─── 단일 계약 처리 ─────────────────────────────────────────
+# ─── 단일 계정 처리 ─────────────────────────────────────────
 
-def process_contract(
-    contract: Dict,
+def process_account(
+    account: Dict,
     client: AkamaiClient,
     rate_limiter: RateLimiter,
-    month: str,
-    next_month: str,
+    start: str,
+    end: str,
 ) -> Dict:
-    """단일 계약의 products, product_usage, reporting_group_usage 수집"""
-    contract_id = contract["contract_id"]
-    account_id = contract["account_id"]
-    company_name = contract["company_name"]
+    """
+    단일 계정의 contracts → products → monthly-summary usage 수집
+
+    Returns:
+        {account_name, account_switch_key, success, product_usage, error}
+    """
+    acc_name = account["accountName"]
+    acc_key = account["accountSwitchKey"]
 
     result = {
-        "contract_id": contract_id,
-        "account_id": account_id,
-        "company_name": company_name,
+        "account_name": acc_name,
+        "account_switch_key": acc_key,
         "success": False,
-        "products": {},
         "product_usage": {},
-        "reporting_group_usage": {},
+        "error": None,
     }
 
-    # Product 목록 조회
+    # contracts 조회
     rate_limiter.acquire()
-    products_data, error = client.get_products(contract_id, account_id, month, next_month)
-
-    if error:
-        result["error"] = f"Product 목록 조회 실패: {error}"
+    contracts, err = client.get_contracts(acc_key)
+    if err or contracts is None:
+        result["error"] = f"계약 목록 조회 실패: {err}"
         return result
 
-    if not products_data:
-        result["error"] = "Product 데이터 없음"
-        return result
-
-    result["products"] = products_data
-    products = extract_products(products_data)
-
-    if not products:
-        result["success"] = True
-        result["error"] = "사용 중인 Product 없음"
-        return result
-
-    # 각 Product별 사용량 + Reporting Group 사용량 조회
-    for product in products:
-        product_id = product.get("productId")
-        product_name = product.get("productName", "Unknown")
-        if not product_id:
+    for contract_id in contracts:
+        # products 조회
+        rate_limiter.acquire()
+        products_data, _ = client.get_products(contract_id, acc_key, start, end)
+        if not products_data:
             continue
 
-        rate_limiter.acquire()
-        usage_data, _ = client.get_product_usage(contract_id, account_id, product_id, month)
+        products = extract_products(products_data)
 
-        if usage_data:
-            key = f"{contract_id}_{product_id}"
-            result["product_usage"][key] = {
-                "contractId": contract_id,
-                "accountId": account_id,
-                "companyName": company_name,
-                "productId": product_id,
-                "productName": product_name,
-                "data": usage_data,
-            }
-
-        for rg in product.get("reportingGroups", []):
-            rg_id = rg.get("reportingGroupId")
-            rg_name = rg.get("reportingGroupName", "Unknown")
-            if not rg_id:
+        for prod in products:
+            prod_id = prod.get("productId")
+            prod_name = prod.get("productName")
+            if not prod_id:
                 continue
 
+            # monthly-summary usage 조회 (말일자 데이터)
             rate_limiter.acquire()
-            rg_data, _ = client.get_reporting_group_usage(account_id, rg_id, product_id, month)
+            usage, _ = client.get_product_usage_monthly(contract_id, acc_key, prod_id, start, end)
 
-            if rg_data:
-                key = f"{contract_id}_{product_id}_{rg_id}"
-                result["reporting_group_usage"][key] = {
+            if usage:
+                key = f"{contract_id}_{prod_id}"
+                result["product_usage"][key] = {
+                    "accountName": acc_name,
+                    "accountSwitchKey": acc_key,
                     "contractId": contract_id,
-                    "accountId": account_id,
-                    "companyName": company_name,
-                    "productId": product_id,
-                    "productName": product_name,
-                    "reportingGroupId": rg_id,
-                    "reportingGroupName": rg_name,
-                    "data": rg_data,
+                    "productId": prod_id,
+                    "productName": prod_name,
+                    "data": usage,
                 }
 
     result["success"] = True
+    print(f"  → [{acc_name}] 완료!")
     return result
 
 
@@ -237,61 +199,52 @@ def process_contract(
 
 def collect_all(
     client: AkamaiClient,
-    contracts: List[Dict],
-    billing_month: str,
-    next_month: str,
+    accounts: List[Dict],
+    start: str,
+    end: str,
 ) -> Dict:
-    """전체 계약 병렬 수집"""
+    """전체 계정 병렬 수집"""
     rate_limiter = RateLimiter(RATE_LIMIT_PER_MINUTE)
 
-    all_products = {}
     all_product_usage = {}
-    all_rg_usage = {}
     failed = []
     success_count = 0
 
-    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
-            executor.submit(
-                process_contract, c, client, rate_limiter, billing_month, next_month
-            ): c
-            for c in contracts
+            executor.submit(process_account, acc, client, rate_limiter, start, end): acc
+            for acc in accounts
         }
 
         for idx, future in enumerate(as_completed(futures), 1):
-            contract = futures[future]
+            account = futures[future]
             try:
                 result = future.result()
-                cid = result["contract_id"]
-                name = result["company_name"]
+                acc_name = result["account_name"]
 
                 if result["success"]:
                     success_count += 1
-
-                    if result["products"]:
-                        all_products[cid] = {
-                            "accountId": result["account_id"],
-                            "companyName": name,
-                            "data": result["products"],
-                        }
-
                     all_product_usage.update(result["product_usage"])
-                    all_rg_usage.update(result["reporting_group_usage"])
-
-                    print(f"[{idx}/{len(contracts)}] OK {cid} ({name})")
+                    print(f"[{idx}/{len(accounts)}] OK {acc_name}")
                 else:
-                    failed.append({"contract_id": cid, "company_name": name, "reason": result.get("error")})
-                    print(f"[{idx}/{len(contracts)}] FAIL {cid} ({name}): {result.get('error')}")
+                    failed.append({
+                        "account_name": acc_name,
+                        "account_switch_key": result["account_switch_key"],
+                        "reason": result.get("error"),
+                    })
+                    print(f"[{idx}/{len(accounts)}] FAIL {acc_name}: {result.get('error')}")
 
             except Exception as e:
-                cid = contract["contract_id"]
-                failed.append({"contract_id": cid, "company_name": contract["company_name"], "reason": str(e)})
-                print(f"[{idx}/{len(contracts)}] ERROR {cid}: {e}")
+                acc_name = account["accountName"]
+                failed.append({
+                    "account_name": acc_name,
+                    "account_switch_key": account["accountSwitchKey"],
+                    "reason": str(e),
+                })
+                print(f"[{idx}/{len(accounts)}] ERROR {acc_name}: {e}")
 
     return {
-        "products": all_products,
         "product_usage": all_product_usage,
-        "reporting_group_usage": all_rg_usage,
         "success_count": success_count,
         "failed": failed,
     }
@@ -299,26 +252,21 @@ def collect_all(
 
 # ─── JSONL 변환 (인메모리) ───────────────────────────────────
 
-def to_date(value: str) -> str:
-    """YYYY-MM → YYYY-MM-01 (DATE 타입용), 이미 YYYY-MM-DD면 그대로 반환"""
-    if not value:
-        return None
-    if len(value) == 7:  # YYYY-MM
-        return f"{value}-01"
-    return value  # YYYY-MM-DD 또는 다른 형식
-
-
 def to_billing_date(billing_month: str) -> str:
     """YYYY-MM → YYYY-MM-01 (DATE 타입용)"""
     return f"{billing_month}-01"
 
 
 def flatten_product_usage(raw_data: Dict, billing_month: str) -> List[Dict]:
+    """
+    monthly-summary usage 응답을 BigQuery용 JSONL 레코드로 변환.
+    values 리스트에는 해당 월 말일자 데이터 하나만 포함.
+    """
     records = []
     for record in raw_data.values():
+        account_name = record.get("accountName")
+        account_switch_key = record.get("accountSwitchKey")
         contract_id = record.get("contractId")
-        account_id = record.get("accountId")
-        company_name = record.get("companyName")
         product_id = record.get("productId")
         product_name = record.get("productName")
 
@@ -335,9 +283,9 @@ def flatten_product_usage(raw_data: Dict, billing_month: str) -> List[Dict]:
                 for v in stat.get("values", []):
                     records.append({
                         "billing_month": to_billing_date(billing_month),
+                        "account_name": account_name,
+                        "account_switch_key": account_switch_key,
                         "contract_id": contract_id,
-                        "account_id": account_id,
-                        "company_name": company_name,
                         "product_id": product_id,
                         "product_name": product_name,
                         "region": region,
@@ -347,101 +295,6 @@ def flatten_product_usage(raw_data: Dict, billing_month: str) -> List[Dict]:
                         "date": v.get("date"),
                         "value": v.get("value"),
                         "data_status": data_status,
-                        "request_date": request_date,
-                    })
-    return records
-
-
-def flatten_reporting_group_usage(raw_data: Dict, billing_month: str) -> List[Dict]:
-    records = []
-    for record in raw_data.values():
-        contract_id = record.get("contractId")
-        account_id = record.get("accountId")
-        company_name = record.get("companyName")
-        product_id = record.get("productId")
-        product_name = record.get("productName")
-        rg_id = record.get("reportingGroupId")
-        rg_name = record.get("reportingGroupName")
-
-        data = record.get("data", {})
-        data_status = data.get("dataStatus")
-        request_date = data.get("requestDate")
-
-        for period in data.get("usagePeriods", []):
-            region = period.get("region")
-            for stat in period.get("stats", []):
-                stat_type = stat.get("statType")
-                unit = stat.get("unit")
-                is_billable = stat.get("isBillable")
-                for v in stat.get("values", []):
-                    records.append({
-                        "billing_month": to_billing_date(billing_month),
-                        "contract_id": contract_id,
-                        "account_id": account_id,
-                        "company_name": company_name,
-                        "product_id": product_id,
-                        "product_name": product_name,
-                        "reporting_group_id": rg_id,
-                        "reporting_group_name": rg_name,
-                        "region": region,
-                        "stat_type": stat_type,
-                        "unit": unit,
-                        "is_billable": is_billable,
-                        "date": v.get("date"),
-                        "value": v.get("value"),
-                        "data_status": data_status,
-                        "request_date": request_date,
-                    })
-    return records
-
-
-def flatten_products(raw_data: Dict, billing_month: str) -> List[Dict]:
-    records = []
-    for contract_id, record in raw_data.items():
-        account_id = record.get("accountId")
-        company_name = record.get("companyName")
-
-        data = record.get("data", {})
-        request_date = data.get("requestDate")
-        start = to_date(data.get("start"))
-        end = to_date(data.get("end"))
-
-        for period in data.get("usagePeriods", []):
-            month = period.get("month")
-            for product in period.get("usageProducts", []):
-                product_id = product.get("productId")
-                product_name = product.get("productName")
-                reporting_groups = product.get("reportingGroups", [])
-
-                if reporting_groups:
-                    for rg in reporting_groups:
-                        records.append({
-                            "billing_month": to_billing_date(billing_month),
-                            "contract_id": contract_id,
-                            "account_id": account_id,
-                            "company_name": company_name,
-                            "product_id": product_id,
-                            "product_name": product_name,
-                            "reporting_group_id": rg.get("reportingGroupId"),
-                            "reporting_group_name": rg.get("reportingGroupName"),
-                            "month": month,
-                            "start": start,
-                            "end": end,
-                            "request_date": request_date,
-                        })
-                else:
-                    records.append({
-                        "billing_month": to_billing_date(billing_month),
-                        "contract_id": contract_id,
-                        "account_id": account_id,
-                        "company_name": company_name,
-                        "product_id": product_id,
-                        "product_name": product_name,
-                        "reporting_group_id": None,
-                        "reporting_group_name": None,
-                        "month": month,
-                        "start": start,
-                        "end": end,
                         "request_date": request_date,
                     })
     return records
@@ -450,25 +303,15 @@ def flatten_products(raw_data: Dict, billing_month: str) -> List[Dict]:
 # ─── BigQuery 적재 ───────────────────────────────────────────
 
 def upload_to_bigquery(
-    products: List[Dict],
     product_usage: List[Dict],
-    rg_usage: List[Dict],
     dataset_id: str,
     billing_month: str,
 ) -> Dict[str, int]:
-    """3개 테이블 순차 적재 (billing_month 월별 파티셔닝, 해당 월만 덮어쓰기)"""
+    """product_usage 테이블 적재 (billing_month 월별 파티셔닝, 해당 월만 덮어쓰기)"""
     client = get_bq_client()
     result = {}
 
-    # YYYY-MM → YYYYMM (파티션 데코레이터용)
     partition_value = billing_month.replace("-", "")
-
-    if products:
-        result["products"] = upload_records(
-            client, dataset_id, "products", products, PRODUCTS_SCHEMA,
-            partition_field="billing_month", partition_value=partition_value
-        )
-        print(f"  products: {result['products']}행 적재")
 
     if product_usage:
         result["product_usage"] = upload_records(
@@ -476,13 +319,6 @@ def upload_to_bigquery(
             partition_field="billing_month", partition_value=partition_value
         )
         print(f"  product_usage: {result['product_usage']}행 적재")
-
-    if rg_usage:
-        result["reporting_group_usage"] = upload_records(
-            client, dataset_id, "reporting_group_usage", rg_usage, REPORTING_GROUP_USAGE_SCHEMA,
-            partition_field="billing_month", partition_value=partition_value
-        )
-        print(f"  reporting_group_usage: {result['reporting_group_usage']}행 적재")
 
     return result
 
@@ -498,23 +334,15 @@ def main():
         year, mon = billing_month.split("-")
         next_month = f"{year}-{int(mon)+1:02d}" if int(mon) < 12 else f"{int(year)+1}-01"
 
-        akamai_cookie = os.environ.get("AKAMAI_COOKIE", "")
+        client_id = os.environ["AKAMAI_CLIENT_ID"]
         dataset_id = os.environ.get("BQ_DATASET", "akamai_billing")
 
         print("=" * 60)
-        print(f"Akamai Billing Pipeline")
-        print(f"Billing Month: {billing_month}")
+        print("Akamai Billing Pipeline")
+        print(f"Billing Month: {billing_month}  (start={billing_month}, end={next_month})")
         print("=" * 60)
 
-        # 2. HyperBilling에서 계약 목록 조회
-        print("\n[1/5] 계약 목록 조회")
-        contracts = fetch_akamai_contracts(akamai_cookie)
-
-        if not contracts:
-            notifier.send("실패", "계약 목록이 비어있습니다.")
-            return
-
-        # 3. Akamai 클라이언트 초기화
+        # 2. Akamai 클라이언트 초기화
         akamai_client = AkamaiClient(
             client_token=os.environ["AKAMAI_CLIENT_TOKEN"],
             client_secret=os.environ["AKAMAI_CLIENT_SECRET"],
@@ -522,23 +350,31 @@ def main():
             base_url=os.environ["AKAMAI_BASE_URL"],
         )
 
-        # 4. 상태 확인
+        # 3. accountSwitchKey 목록 조회
+        print("\n[1/5] 계정 목록 조회")
+        accounts = fetch_account_switch_keys(akamai_client, client_id)
+
+        if not accounts:
+            notifier.send("실패", "계정 목록이 비어있습니다.")
+            return
+
+        # 4. 상태 확인 (샘플 계정으로 monthly-summary dataStatus 점검)
         print("\n[2/5] 데이터 상태 확인")
         status_limiter = RateLimiter(RATE_LIMIT_PER_MINUTE)
         is_ready, status_report = check_data_status(
-            akamai_client, status_limiter, contracts, billing_month, next_month
+            akamai_client, status_limiter, accounts, billing_month, next_month
         )
 
         if not is_ready:
             notifier.send("수집 중", f"{billing_month}\n{status_report}")
-            print(f"\n데이터 수집 중 — 파이프라인 종료")
+            print("\n데이터 수집 중 — 파이프라인 종료")
             return
 
         notifier.send("수집 완료", f"{billing_month} — 데이터 수집 시작\n{status_report}")
 
-        # 5. 전체 데이터 수집
-        print(f"\n[3/5] 데이터 수집 ({len(contracts)}개 계약)")
-        collected = collect_all(akamai_client, contracts, billing_month, next_month)
+        # 5. 전체 데이터 수집 (계정별 병렬)
+        print(f"\n[3/5] 데이터 수집 ({len(accounts)}개 계정)")
+        collected = collect_all(akamai_client, accounts, billing_month, next_month)
 
         success = collected["success_count"]
         failed = collected["failed"]
@@ -546,23 +382,19 @@ def main():
 
         # 6. JSONL 변환 (인메모리)
         print("\n[4/5] 데이터 변환")
-        products_flat = flatten_products(collected["products"], billing_month)
         usage_flat = flatten_product_usage(collected["product_usage"], billing_month)
-        rg_flat = flatten_reporting_group_usage(collected["reporting_group_usage"], billing_month)
-        print(f"  products: {len(products_flat)}건, product_usage: {len(usage_flat)}건, rg_usage: {len(rg_flat)}건")
+        print(f"  product_usage: {len(usage_flat)}건")
 
         # 7. BigQuery 적재
         print("\n[5/5] BigQuery 적재")
-        bq_result = upload_to_bigquery(products_flat, usage_flat, rg_flat, dataset_id, billing_month)
+        bq_result = upload_to_bigquery(usage_flat, dataset_id, billing_month)
 
         # 8. 완료 알림
         duration = time.time() - start_time
         summary = (
             f"{billing_month}\n"
-            f"계약: {success}/{len(contracts)} (실패 {len(failed)})\n"
-            f"products: {bq_result.get('products', 0)}행\n"
+            f"계정: {success}/{len(accounts)} (실패 {len(failed)})\n"
             f"product_usage: {bq_result.get('product_usage', 0)}행\n"
-            f"rg_usage: {bq_result.get('reporting_group_usage', 0)}행\n"
             f"소요: {duration:.0f}초"
         )
         notifier.send("완료", summary)

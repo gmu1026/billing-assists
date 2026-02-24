@@ -85,9 +85,9 @@ def upload_records(
 
 PRODUCT_USAGE_SCHEMA = [
     bigquery.SchemaField("billing_month", "DATE"),
+    bigquery.SchemaField("account_name", "STRING"),
+    bigquery.SchemaField("account_switch_key", "STRING"),
     bigquery.SchemaField("contract_id", "STRING"),
-    bigquery.SchemaField("account_id", "STRING"),
-    bigquery.SchemaField("company_name", "STRING"),
     bigquery.SchemaField("product_id", "STRING"),
     bigquery.SchemaField("product_name", "STRING"),
     bigquery.SchemaField("region", "STRING"),
@@ -97,39 +97,5 @@ PRODUCT_USAGE_SCHEMA = [
     bigquery.SchemaField("date", "DATE"),
     bigquery.SchemaField("value", "FLOAT64"),
     bigquery.SchemaField("data_status", "STRING"),
-    bigquery.SchemaField("request_date", "TIMESTAMP"),
-]
-
-REPORTING_GROUP_USAGE_SCHEMA = [
-    bigquery.SchemaField("billing_month", "DATE"),
-    bigquery.SchemaField("contract_id", "STRING"),
-    bigquery.SchemaField("account_id", "STRING"),
-    bigquery.SchemaField("company_name", "STRING"),
-    bigquery.SchemaField("product_id", "STRING"),
-    bigquery.SchemaField("product_name", "STRING"),
-    bigquery.SchemaField("reporting_group_id", "STRING"),
-    bigquery.SchemaField("reporting_group_name", "STRING"),
-    bigquery.SchemaField("region", "STRING"),
-    bigquery.SchemaField("stat_type", "STRING"),
-    bigquery.SchemaField("unit", "STRING"),
-    bigquery.SchemaField("is_billable", "BOOLEAN"),
-    bigquery.SchemaField("date", "DATE"),
-    bigquery.SchemaField("value", "FLOAT64"),
-    bigquery.SchemaField("data_status", "STRING"),
-    bigquery.SchemaField("request_date", "TIMESTAMP"),
-]
-
-PRODUCTS_SCHEMA = [
-    bigquery.SchemaField("billing_month", "DATE"),
-    bigquery.SchemaField("contract_id", "STRING"),
-    bigquery.SchemaField("account_id", "STRING"),
-    bigquery.SchemaField("company_name", "STRING"),
-    bigquery.SchemaField("product_id", "STRING"),
-    bigquery.SchemaField("product_name", "STRING"),
-    bigquery.SchemaField("reporting_group_id", "STRING"),
-    bigquery.SchemaField("reporting_group_name", "STRING"),
-    bigquery.SchemaField("month", "STRING"),
-    bigquery.SchemaField("start", "DATE"),
-    bigquery.SchemaField("end", "DATE"),
     bigquery.SchemaField("request_date", "TIMESTAMP"),
 ]

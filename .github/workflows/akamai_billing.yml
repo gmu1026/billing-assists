@@ -33,11 +33,11 @@ jobs:
       - name: Run Akamai Billing Pipeline
         env:
           PYTHONPATH: .
+          AKAMAI_CLIENT_ID: ${{ secrets.AKAMAI_CLIENT_ID }}
           AKAMAI_CLIENT_TOKEN: ${{ secrets.AKAMAI_CLIENT_TOKEN }}
           AKAMAI_CLIENT_SECRET: ${{ secrets.AKAMAI_CLIENT_SECRET }}
           AKAMAI_ACCESS_TOKEN: ${{ secrets.AKAMAI_ACCESS_TOKEN }}
           AKAMAI_BASE_URL: ${{ secrets.AKAMAI_BASE_URL }}
-          AKAMAI_COOKIE: ${{ secrets.AKAMAI_COOKIE }}
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           BQ_SA_KEY: ${{ secrets.BQ_SA_KEY }}
           BQ_PROJECT: ${{ secrets.BQ_PROJECT }}
